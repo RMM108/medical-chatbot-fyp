@@ -1,0 +1,32 @@
+# Virtual environment
+venv/
+env/
+
+# Environment variables (contains API keys!)
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Data files (if any contain patient info)
+data/
+conversation_logs/
+
+# Config folder if empty
+config/__pycache__/

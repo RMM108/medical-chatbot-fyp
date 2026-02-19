@@ -2,14 +2,14 @@
 """
 Medical Training Chatbot - Patient Simulator
 Simulates depressed patients for medical student training
+With advanced evaluation: PHQ-9 diagnostic accuracy + LLM-based empathy scoring
 """
 
 from patient_generator import PatientGenerator
 from rag_client import RAGClient
 from llm_handler import LLMHandler
+from evaluator import ConversationEvaluator
 from config import SERVER_URL
-
-
 
 class MedicalChatbot:
     """Main chatbot orchestrator"""
@@ -19,11 +19,13 @@ class MedicalChatbot:
         self.rag_client = RAGClient()
         self.llm = LLMHandler()
         self.current_patient = None
+        self.evaluator = None
     
     def start_new_patient(self, severity: str = None):
         """Initialize a new patient simulation"""
         self.current_patient = self.patient_gen.generate_patient(severity)
         self.llm.reset_conversation()
+        self.evaluator = ConversationEvaluator()
         return self.current_patient
     
     def process_trainee_message(self, message: str) -> str:
@@ -52,6 +54,9 @@ class MedicalChatbot:
             rag_context=rag_context
         )
         
+        # Log the exchange for evaluation
+        self.evaluator.log_exchange(message, response)
+        
         return response
     
     def display_patient_info(self):
@@ -71,6 +76,21 @@ class MedicalChatbot:
         print(f"Depression Severity: {p['severity']}")
         print(f"PHQ-9 Score: {p['phq9_score']}/27")
         print("="*60 + "\n")
+    
+    def end_session(self):
+        """End the session and show comprehensive evaluation"""
+        if not self.current_patient or not self.evaluator:
+            print("No active session to evaluate.")
+            return
+        
+        # Check if conversation happened
+        if len(self.evaluator.conversation_log) == 0:
+            print("\nNo conversation to evaluate. Please conduct an interview first.")
+            return
+        
+        # Generate and display evaluation
+        evaluation = self.evaluator.generate_full_evaluation(self.current_patient)
+        self.evaluator.display_evaluation(evaluation)
 
 def main():
     """Main CLI interface"""
@@ -101,10 +121,11 @@ def main():
     bot.display_patient_info()
     
     print("You can now begin the interview.")
-    print("Commands:")
+    print("\nCommands:")
+    print("  /end    - End session and get comprehensive evaluation")
     print("  /new [severity] - Start with new patient (optional: Mild, Moderate, Severe)")
-    print("  /info - Show current patient info")
-    print("  /quit - Exit")
+    print("  /info   - Show current patient info again")
+    print("  /quit   - Exit without evaluation")
     print("\n" + "-"*60 + "\n")
     
     # Main conversation loop
@@ -122,11 +143,29 @@ def main():
                 command = command_parts[0].lower()
                 
                 if command == '/quit':
-                    print("\nEnding session. Goodbye!")
+                    print("\nExiting without evaluation. Goodbye!")
                     break
                 
                 elif command == '/info':
                     bot.display_patient_info()
+                    continue
+                
+                elif command == '/end':
+                    bot.end_session()
+                    
+                    # Ask if they want to try another patient
+                    response = input("\nStart a new patient? (y/n): ")
+                    if response.lower() == 'y':
+                        severity = input("Severity (or press Enter for random): ").strip()
+                        severity = severity if severity else None
+                        
+                        print("\nGenerating new patient...")
+                        patient = bot.start_new_patient(severity)
+                        bot.display_patient_info()
+                        print("You can now begin the interview.\n")
+                    else:
+                        print("\nGoodbye!")
+                        break
                     continue
                 
                 elif command == '/new':
@@ -134,6 +173,11 @@ def main():
                     if severity and severity not in bot.patient_gen.SEVERITIES:
                         print(f"Invalid severity. Choose from: {', '.join(bot.patient_gen.SEVERITIES)}")
                         continue
+                    
+                    # Show evaluation for current patient if conversation happened
+                    if bot.evaluator and len(bot.evaluator.conversation_log) > 0:
+                        print("\nEnding current session first...")
+                        bot.end_session()
                     
                     print("\nGenerating new patient...")
                     patient = bot.start_new_patient(severity)
@@ -151,10 +195,16 @@ def main():
             print(response + "\n")
             
         except KeyboardInterrupt:
-            print("\n\nSession interrupted. Goodbye!")
+            print("\n\nSession interrupted.")
+            if bot.evaluator and len(bot.evaluator.conversation_log) > 0:
+                print("Generating evaluation...")
+                bot.end_session()
+            print("\nGoodbye!")
             break
         except Exception as e:
             print(f"\nError: {e}")
+            import traceback
+            traceback.print_exc()
             print("Continuing...\n")
 
 if __name__ == "__main__":

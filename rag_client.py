@@ -2,7 +2,6 @@ import requests
 from typing import List, Dict, Optional
 from config import SERVER_URL, RAG_LIMIT, MIN_RELEVANCE_SCORE
 
-from config import SERVER_URL, RAG_LIMIT, MIN_RELEVANCE_SCORE
 
 class RAGClient:
     """Client for querying the RAG system"""

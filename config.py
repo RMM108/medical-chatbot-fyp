@@ -16,4 +16,4 @@ TEMPERATURE = 0.7
 
 # RAG settings
 RAG_LIMIT = 3  # Number of examples to retrieve
-MIN_RELEVANCE_SCORE = 0.3  # Minimum similarity score
+MIN_RELEVANCE_SCORE = 0.4  # Minimum similarity score

@@ -127,10 +127,11 @@ Example:
     # Show student stats
     progress_data = db.get_progress_data(student_id)
     
-    stats_msg = f"""## Your Stats
+    stats_msg = f"""## 📊 Your Progress
 
 **Total Sessions:** {progress_data['total_sessions']}  
-**Average Total Score:** {progress_data['avg_overall_score']:.1f}%  
+**Average Score:** {progress_data['avg_overall_score']:.1f}%  
+**Total Conversations:** {progress_data['total_exchanges']} exchanges
 
 ---
 """
@@ -182,6 +183,8 @@ Conduct a thorough clinical interview to assess this patient's mental health.
 
 **Remember to:**
 - Show empathy and build rapport
+- Ask open-ended questions
+- Assess suicide risk
 - Cover key depression symptoms
 """
     
@@ -206,6 +209,12 @@ Conduct a thorough clinical interview to assess this patient's mental health.
             label="📈 View My Progress"
         ),
         cl.Action(
+            name="session_history",
+            value="history",
+            payload={"action": "session_history"},
+            label="📚 Session History"
+        ),
+        cl.Action(
             name="new_patient", 
             value="new",
             payload={"action": "new_patient"},
@@ -226,6 +235,116 @@ async def main(message: cl.Message):
     # Don't process messages if we're in assessment mode (using buttons)
     if cl.user_session.get("awaiting_assessment"):
         return
+    
+    # Check if in history mode (viewing past sessions)
+    if cl.user_session.get("history_mode"):
+        try:
+            display_number = int(message.content.strip())
+            session_mapping = cl.user_session.get("session_mapping", {})
+            
+            if display_number not in session_mapping:
+                await cl.Message(
+                    content=f"❌ Invalid session number. Please enter a number between 1 and {len(session_mapping)}.",
+                    author="System"
+                ).send()
+                return
+            
+            # Get the actual session_id from the mapping
+            session_id = session_mapping[display_number]
+            
+            # Get session details
+            session = db.get_session_details(session_id)
+            
+            if not session:
+                await cl.Message(
+                    content="❌ Session not found.",
+                    author="System"
+                ).send()
+                return
+            
+            # Format session details
+            details = f"""## 📋 Session {session_id} Details
+
+**Patient:** {session['patient_name']}  
+**Severity:** {session['patient_severity']} (PHQ-9: {session['patient_phq9_score']})  
+**Date:** {session['session_date']}  
+**Exchanges:** {session['conversation_length']} turns
+
+---
+
+### 💬 Conversation Transcript
+
+"""
+            
+            # Add conversation
+            for exchange in session['conversation']:
+                details += f"""**Doctor:** {exchange['doctor']}
+
+**Patient ({session['patient_name']}):** {exchange['patient']}
+
+---
+
+"""
+            
+            # Add evaluation summary
+            if session.get('evaluation'):
+                eval_data = session['evaluation']
+                phq9 = eval_data.get('phq9_evaluation', {})
+                empathy = eval_data.get('empathy_evaluation', {})
+                
+                details += f"""### 📊 Your Performance
+
+**Overall Score:** {eval_data.get('overall_score', 0):.1f}%
+
+**Diagnostic Accuracy:** {phq9.get('diagnostic_accuracy', 0):.1f}%
+- Your Assessment: {phq9.get('doctor_assessment', {}).get('severity', 'N/A')} (Score: {phq9.get('doctor_assessment', {}).get('score', 'N/A')})
+- Actual: {eval_data.get('patient_profile', {}).get('severity', 'N/A')} (Score: {eval_data.get('patient_profile', {}).get('phq9_score', 'N/A')})
+
+**Empathy Score:** {empathy.get('overall_score', 0):.1f}%
+- Understanding: {empathy.get('understanding', {}).get('score', 0):.0f}%
+- Communication: {empathy.get('communication', {}).get('score', 0):.0f}%
+- Intention to Help: {empathy.get('intention', {}).get('score', 0):.0f}%
+"""
+            
+            await cl.Message(
+                content=details,
+                author="Session Details"
+            ).send()
+            
+            # Exit history mode
+            cl.user_session.set("history_mode", False)
+            
+            # Add action buttons
+            await cl.Message(
+                content="",
+                actions=[
+                    cl.Action(
+                        name="session_history",
+                        value="history",
+                        payload={"action": "session_history"},
+                        label="📚 View Another Session"
+                    ),
+                    cl.Action(
+                        name="view_progress",
+                        value="progress",
+                        payload={"action": "view_progress"},
+                        label="📈 View Progress"
+                    ),
+                    cl.Action(
+                        name="new_patient",
+                        value="new",
+                        payload={"action": "new_patient"},
+                        label="👤 New Patient"
+                    )
+                ],
+                author="System"
+            ).send()
+            
+            return
+            
+        except ValueError:
+            # Not a valid number, treat as normal conversation
+            cl.user_session.set("history_mode", False)
     
     # Normal conversation
     patient = cl.user_session.get("patient")
@@ -278,10 +397,16 @@ async def main(message: cl.Message):
             label="📊 End & Evaluate"
         ),
         cl.Action(
+            name="session_history",
+            value="history",
+            payload={"action": "session_history"},
+            label="📚 History"
+        ),
+        cl.Action(
             name="view_progress",
             value="progress",
             payload={"action": "view_progress"},
-            label="📈 View Progress"
+            label="📈 Progress"
         )
     ]
     
@@ -514,6 +639,67 @@ Great work! Ready for another patient?
             author="System"
         ).send()
 
+@cl.action_callback("session_history")
+async def session_history(action: cl.Action):
+    """Show student's session history"""
+    
+    student_id = cl.user_session.get("student_id")
+    
+    await cl.Message(
+        content="📚 Loading your session history...",
+        author="System"
+    ).send()
+    
+    # Get all evaluated sessions
+    sessions = db.get_student_sessions(student_id, limit=20)
+    
+    if not sessions:
+        await cl.Message(
+            content="No completed sessions yet. Complete an interview and evaluation to see it here!",
+            author="System"
+        ).send()
+        return
+    
+    # Create a mapping of display number to session_id
+    session_mapping = {}
+    for i, session in enumerate(sessions, 1):
+        session_mapping[i] = session['session_id']
+    
+    # Store mapping in user session
+    cl.user_session.set("session_mapping", session_mapping)
+    
+    # Format session list
+    history_text = f"""## 📚 Your Session History
+
+**Total Evaluated Sessions:** {len(sessions)}
+
+---
+
+"""
+    
+    for i, session in enumerate(sessions, 1):
+        date = session['session_date'].split()[0] if session['session_date'] else 'Unknown'
+        
+        history_text += f"""**{i}.** {session['patient_name']} ({date})
+- Severity: {session['patient_severity']} | Your Score: {session['overall_score']:.1f}%
+- Diagnostic: {session['diagnostic_accuracy']:.1f}% | Empathy: {session['empathy_score']:.1f}%
+
+"""
+    
+    await cl.Message(
+        content=history_text,
+        author="History"
+    ).send()
+    
+    # Instruct user to send session number
+    await cl.Message(
+        content="💡 **To view a session:** Type the session number (e.g., `1`, `2`, `3`) to see the full conversation.",
+        author="System"
+    ).send()
+    
+    # Set a flag that we're in history mode
+    cl.user_session.set("history_mode", True)
+
 @cl.action_callback("view_progress")
 async def view_progress(action: cl.Action):
     """Show student's progress dashboard"""
@@ -569,6 +755,26 @@ async def view_progress(action: cl.Action):
             content="",
             elements=elements,
             author="Charts"
+        ).send()
+        
+        # Add action buttons
+        await cl.Message(
+            content="",
+            actions=[
+                cl.Action(
+                    name="session_history",
+                    value="history",
+                    payload={"action": "session_history"},
+                    label="📚 Session History"
+                ),
+                cl.Action(
+                    name="new_patient",
+                    value="new",
+                    payload={"action": "new_patient"},
+                    label="👤 New Patient"
+                )
+            ],
+            author="System"
         ).send()
         
     except Exception as e:

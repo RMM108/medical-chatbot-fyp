@@ -1,14 +1,34 @@
-# Welcome to Chainlit! 🚀🤖
+# 🏥 Medical Training Chatbot
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+Welcome to the interactive clinical interviewing practice platform!
 
-## Useful Links 🔗
+## 🔐 Student Login
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
+Enter your credentials provided by your instructor.
 
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
+**Don't have an account?**  
+Contact your course administrator to register.
 
-## Welcome screen
+---
 
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+## 📚 What You'll Practice
+
+- ✅ Clinical interviewing skills
+- ✅ Diagnostic accuracy (PHQ-9 assessments)
+- ✅ Empathy and communication
+- ✅ Patient rapport building
+- ✅ Mental health assessment
+
+---
+
+## 📈 Track Your Progress
+
+- View your performance scores
+- See improvement over time
+- Compare across severity levels
+- Review past sessions
+- Get personalized feedback
+
+---
+
+**Ready to start?** Login above to begin!

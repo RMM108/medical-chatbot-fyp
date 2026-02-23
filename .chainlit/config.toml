@@ -1,6 +1,7 @@
 [project]
 # List of environment variables to be provided by each user to use the app.
 user_env = []
+enable_telementry = false
 
 # Duration (in seconds) during which the session is saved when the connection is lost
 session_timeout = 3600
@@ -25,6 +26,8 @@ allow_origins = ["*"]
 [features]
 # Process and display HTML in messages. This can be a security risk (see https://stackoverflow.com/questions/19603097/why-is-it-dangerous-to-render-user-generated-html-or-javascript)
 unsafe_allow_html = false
+
+prompt_playground = false
 
 # Process and display mathematical expressions. This can clash with "$" characters in messages.
 latex = false
@@ -92,9 +95,9 @@ reaction_on_message_received = false
 
 [UI]
 # Name of the assistant.
-name = "Assistant"
+name = "Medical Training Chatbot"
 
-# default_theme = "dark"
+default_theme = "dark"
 
 # Force a specific language for all users (e.g., "en-US", "he-IL", "fr-FR")
 # If not set, the browser's language will be used

@@ -259,7 +259,7 @@ class StudentDatabase:
     # ==================== PROGRESS TRACKING ====================
     
     def get_student_sessions(self, student_id: int, limit: int = 10) -> List[Dict]:
-        """Get recent sessions for a student"""
+        """Get recent EVALUATED sessions for a student"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -269,7 +269,7 @@ class StudentDatabase:
                 s.patient_phq9_score, s.session_date, s.conversation_length,
                 e.overall_score, e.diagnostic_accuracy, e.empathy_score
             FROM sessions s
-            LEFT JOIN evaluations e ON s.session_id = e.session_id
+            INNER JOIN evaluations e ON s.session_id = e.session_id
             WHERE s.student_id = ?
             ORDER BY s.session_date DESC
             LIMIT ?
@@ -297,7 +297,7 @@ class StudentDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Overall statistics
+        # Overall statistics - ONLY COUNT EVALUATED SESSIONS
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_sessions,
@@ -306,13 +306,13 @@ class StudentDatabase:
                 AVG(e.empathy_score) as avg_empathy,
                 SUM(s.conversation_length) as total_exchanges
             FROM sessions s
-            LEFT JOIN evaluations e ON s.session_id = e.session_id
+            INNER JOIN evaluations e ON s.session_id = e.session_id
             WHERE s.student_id = ?
         """, (student_id,))
         
         stats = cursor.fetchone()
         
-        # Progress over time
+        # Progress over time - ONLY EVALUATED SESSIONS
         cursor.execute("""
             SELECT 
                 s.session_date,
@@ -321,7 +321,7 @@ class StudentDatabase:
                 e.empathy_score,
                 s.patient_severity
             FROM sessions s
-            LEFT JOIN evaluations e ON s.session_id = e.session_id
+            INNER JOIN evaluations e ON s.session_id = e.session_id
             WHERE s.student_id = ?
             ORDER BY s.session_date ASC
         """, (student_id,))
@@ -336,14 +336,14 @@ class StudentDatabase:
                 'severity': row[4]
             })
         
-        # Performance by severity
+        # Performance by severity - ONLY EVALUATED SESSIONS
         cursor.execute("""
             SELECT 
                 s.patient_severity,
                 COUNT(*) as count,
                 AVG(e.overall_score) as avg_score
             FROM sessions s
-            LEFT JOIN evaluations e ON s.session_id = e.session_id
+            INNER JOIN evaluations e ON s.session_id = e.session_id
             WHERE s.student_id = ?
             GROUP BY s.patient_severity
         """, (student_id,))

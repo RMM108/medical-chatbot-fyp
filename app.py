@@ -236,6 +236,128 @@ async def main(message: cl.Message):
     if cl.user_session.get("awaiting_assessment"):
         return
     
+    # Check if in analyze mode
+    if cl.user_session.get("analyze_mode"):
+        try:
+            exchange_num = int(message.content.strip())
+            exchanges = cl.user_session.get("current_session_exchanges", [])
+            patient_info = cl.user_session.get("current_session_patient", {})
+            
+            if exchange_num < 1 or exchange_num > len(exchanges):
+                await cl.Message(
+                    content=f"❌ Invalid exchange number. Please enter a number between 1 and {len(exchanges)}.",
+                    author="System"
+                ).send()
+                return
+            
+            # Get the specific exchange
+            exchange = exchanges[exchange_num - 1]
+            
+            await cl.Message(
+                content=f"🔍 Analyzing Exchange {exchange_num}... (this may take 10-15 seconds)",
+                author="System"
+            ).send()
+            
+            # Use LLM to analyze the exchange
+            from llm_handler import LLMHandler
+            analyzer = LLMHandler()
+            
+            analysis_prompt = f"""You are an expert clinical supervisor evaluating a medical student's interview technique.
+
+**Patient Context:**
+- Name: {patient_info.get('name', 'Unknown')}
+- Depression Severity: {patient_info.get('severity', 'Unknown')}
+- PHQ-9 Score: {patient_info.get('phq9_score', 'Unknown')}/27
+
+**Exchange to Analyze:**
+
+Doctor's Question: "{exchange['doctor']}"
+
+Patient's Response: "{exchange['patient']}"
+
+---
+
+Provide a comprehensive analysis of this exchange. Structure your feedback as follows:
+
+**✅ STRENGTHS (What the doctor did well):**
+[List 2-3 specific positive aspects]
+
+**⚠️ AREAS FOR IMPROVEMENT:**
+[List 2-3 specific areas that could be better]
+
+**💡 ALTERNATIVE APPROACHES:**
+[Suggest 1-2 alternative ways to phrase the question or approach the topic]
+
+**🎯 CLINICAL BEST PRACTICES:**
+[Brief note on relevant clinical interviewing principles]
+
+Be specific, constructive, and educational. Focus on empathy, open-ended questioning, and rapport building."""
+
+            analysis = analyzer.client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1500,
+                temperature=0.3,
+                messages=[{"role": "user", "content": analysis_prompt}]
+            )
+            
+            analysis_text = analysis.content[0].text
+            
+            # Display analysis
+            await cl.Message(
+                content=f"""## 🔍 Analysis: Exchange {exchange_num}
+
+**Doctor:** {exchange['doctor']}
+
+**Patient:** {exchange['patient']}
+
+---
+
+{analysis_text}
+""",
+                author="Analysis"
+            ).send()
+            
+            # Exit analyze mode
+            cl.user_session.set("analyze_mode", False)
+            
+            # Offer to analyze another or exit
+            await cl.Message(
+                content="",
+                actions=[
+                    cl.Action(
+                        name="analyze_mode",
+                        value="analyze",
+                        payload={"action": "analyze"},
+                        label="🔍 Analyze Another Exchange"
+                    ),
+                    cl.Action(
+                        name="session_history",
+                        value="history",
+                        payload={"action": "session_history"},
+                        label="📚 Session History"
+                    ),
+                    cl.Action(
+                        name="new_patient",
+                        value="new",
+                        payload={"action": "new_patient"},
+                        label="👤 New Patient"
+                    )
+                ],
+                author="System"
+            ).send()
+            
+            return
+            
+        except ValueError:
+            cl.user_session.set("analyze_mode", False)
+        except Exception as e:
+            await cl.Message(
+                content=f"❌ Error analyzing exchange: {str(e)}",
+                author="System"
+            ).send()
+            cl.user_session.set("analyze_mode", False)
+            return
+    
     # Check if in history mode (viewing past sessions)
     if cl.user_session.get("history_mode"):
         try:
@@ -276,15 +398,25 @@ async def main(message: cl.Message):
 
 """
             
-            # Add conversation
-            for exchange in session['conversation']:
-                details += f"""**Doctor:** {exchange['doctor']}
+            # Add conversation with exchange numbers
+            for idx, exchange in enumerate(session['conversation'], 1):
+                details += f"""**Exchange {idx}**
 
-**Patient ({session['patient_name']}):** {exchange['patient']}
+🩺 **Doctor:** {exchange['doctor']}
+
+👤 **Patient ({session['patient_name']}):** {exchange['patient']}
 
 ---
 
 """
+            
+            # Store exchanges for analysis
+            cl.user_session.set("current_session_exchanges", session['conversation'])
+            cl.user_session.set("current_session_patient", {
+                'name': session['patient_name'],
+                'severity': session['patient_severity'],
+                'phq9_score': session['patient_phq9_score']
+            })
             
             # Add evaluation summary
             if session.get('evaluation'):
@@ -314,10 +446,16 @@ async def main(message: cl.Message):
             # Exit history mode
             cl.user_session.set("history_mode", False)
             
-            # Add action buttons
+            # Add action buttons including analyze option
             await cl.Message(
-                content="",
+                content="💡 **Want feedback on a specific exchange?** Type the exchange number to get AI analysis (e.g., type `1` for Exchange 1).",
                 actions=[
+                    cl.Action(
+                        name="analyze_mode",
+                        value="analyze",
+                        payload={"action": "analyze"},
+                        label="🔍 Analyze an Exchange"
+                    ),
                     cl.Action(
                         name="session_history",
                         value="history",
@@ -783,11 +921,206 @@ async def view_progress(action: cl.Action):
             author="System"
         ).send()
 
+@cl.action_callback("analyze_mode")
+async def analyze_mode(action: cl.Action):
+    """Enable exchange analysis mode"""
+    
+    exchanges = cl.user_session.get("current_session_exchanges", [])
+    
+    if not exchanges:
+        await cl.Message(
+            content="❌ No exchanges available to analyze. Please view a session first.",
+            author="System"
+        ).send()
+        return
+    
+    # Create buttons for each exchange (limit to 10 for UI)
+    exchange_actions = []
+    for i in range(min(len(exchanges), 10)):
+        exchange_actions.append(
+            cl.Action(
+                name=f"analyze_exchange",
+                value=str(i + 1),
+                payload={"exchange_num": i + 1},
+                label=f"Exchange {i + 1}"
+            )
+        )
+    
+    message = f"""## 🔍 Exchange Analysis
+
+**Available exchanges:** {len(exchanges)} total
+
+Select an exchange to analyze:
+"""
+    
+    if len(exchanges) > 10:
+        message += f"\n💡 *Showing first 10 exchanges. Type a number (1-{len(exchanges)}) for others.*"
+    
+    await cl.Message(
+        content=message,
+        actions=exchange_actions,
+        author="System"
+    ).send()
+    
+    # Also enable typing for exchanges beyond 10
+    if len(exchanges) > 10:
+        cl.user_session.set("analyze_mode", True)
+    
+    await action.remove()
+
+@cl.action_callback("analyze_exchange")
+async def analyze_exchange(action: cl.Action):
+    """Analyze a specific exchange from button click"""
+    
+    exchange_num = action.payload["exchange_num"]
+    exchanges = cl.user_session.get("current_session_exchanges", [])
+    patient_info = cl.user_session.get("current_session_patient", {})
+    
+    if exchange_num < 1 or exchange_num > len(exchanges):
+        await cl.Message(
+            content=f"❌ Invalid exchange number.",
+            author="System"
+        ).send()
+        return
+    
+    # Get the specific exchange
+    exchange = exchanges[exchange_num - 1]
+    
+    await cl.Message(
+        content=f"🔍 Analyzing Exchange {exchange_num}... (this may take 10-15 seconds)",
+        author="System"
+    ).send()
+    
+    # Use LLM to analyze the exchange
+    from llm_handler import LLMHandler
+    analyzer = LLMHandler()
+    
+    analysis_prompt = f"""You are an expert clinical supervisor evaluating a medical student's interview technique.
+
+**Patient Context:**
+- Name: {patient_info.get('name', 'Unknown')}
+- Depression Severity: {patient_info.get('severity', 'Unknown')}
+- PHQ-9 Score: {patient_info.get('phq9_score', 'Unknown')}/27
+
+**Exchange to Analyze:**
+
+Doctor's Question: "{exchange['doctor']}"
+
+Patient's Response: "{exchange['patient']}"
+
+---
+
+Provide a comprehensive analysis of this exchange. Structure your feedback as follows:
+
+**✅ STRENGTHS (What the doctor did well):**
+[List 2-3 specific positive aspects]
+
+**⚠️ AREAS FOR IMPROVEMENT:**
+[List 2-3 specific areas that could be better]
+
+**💡 ALTERNATIVE APPROACHES:**
+[Suggest 1-2 alternative ways to phrase the question or approach the topic]
+
+**🎯 CLINICAL BEST PRACTICES:**
+[Brief note on relevant clinical interviewing principles]
+
+Be specific, constructive, and educational. Focus on empathy, open-ended questioning, and rapport building."""
+
+    analysis = analyzer.client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1500,
+        temperature=0.3,
+        messages=[{"role": "user", "content": analysis_prompt}]
+    )
+    
+    analysis_text = analysis.content[0].text
+    
+    # Display analysis
+    await cl.Message(
+        content=f"""## 🔍 Analysis: Exchange {exchange_num}
+
+**Doctor:** {exchange['doctor']}
+
+**Patient:** {exchange['patient']}
+
+---
+
+{analysis_text}
+""",
+        author="Analysis"
+    ).send()
+    
+    # Offer to analyze another or exit
+    await cl.Message(
+        content="",
+        actions=[
+            cl.Action(
+                name="analyze_mode",
+                value="analyze",
+                payload={"action": "analyze"},
+                label="🔍 Analyze Another Exchange"
+            ),
+            cl.Action(
+                name="session_history",
+                value="history",
+                payload={"action": "session_history"},
+                label="📚 Session History"
+            ),
+            cl.Action(
+                name="new_patient",
+                value="new",
+                payload={"action": "new_patient"},
+                label="👤 New Patient"
+            )
+        ],
+        author="System"
+    ).send()
+    
+    await action.remove()
+
 @cl.action_callback("new_patient")
 async def new_patient(action: cl.Action):
     """Start new patient interview"""
     
     student_id = cl.user_session.get("student_id")
+    current_session_id = cl.user_session.get("session_id")
+    evaluator = cl.user_session.get("evaluator")
+    
+    # Check if current session has conversation but no evaluation
+    if evaluator and len(evaluator.conversation_log) > 0:
+        # Check if this session was evaluated
+        import sqlite3
+        conn = sqlite3.connect('student_progress.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT evaluation_id FROM evaluations WHERE session_id = ?", (current_session_id,))
+        has_evaluation = cursor.fetchone() is not None
+        conn.close()
+        
+        if not has_evaluation:
+            await cl.Message(
+                content="""⚠️ **Current Session Not Evaluated**
+
+You have an ongoing interview that hasn't been evaluated yet.
+
+**Would you like to:**""",
+                actions=[
+                    cl.Action(
+                        name="end_session",
+                        value="end",
+                        payload={"action": "end_session"},
+                        label="📊 Evaluate Current Session First"
+                    ),
+                    cl.Action(
+                        name="skip_and_new",
+                        value="skip",
+                        payload={"action": "skip_and_new"},
+                        label="⏭️ Skip & Start New Patient"
+                    )
+                ],
+                author="System"
+            ).send()
+            await action.remove()
+            return
     
     await cl.Message(
         content="Generating new patient...",
@@ -827,7 +1160,32 @@ async def new_patient(action: cl.Action):
     await cl.Message(content=patient_info, author="System").send()
     
     greeting = f"Hi... I'm {patient['name']}. Thank you for seeing me."
-    await cl.Message(content=greeting, author=patient['name']).send()
+    
+    # Send greeting with action buttons
+    await cl.Message(
+        content=greeting,
+        author=patient['name'],
+        actions=[
+            cl.Action(
+                name="end_session",
+                value="end",
+                payload={"action": "end_session"},
+                label="📊 End & Evaluate"
+            ),
+            cl.Action(
+                name="session_history",
+                value="history",
+                payload={"action": "session_history"},
+                label="📚 History"
+            ),
+            cl.Action(
+                name="view_progress",
+                value="progress",
+                payload={"action": "view_progress"},
+                label="📈 Progress"
+            )
+        ]
+    ).send()
     
     await action.remove()
 

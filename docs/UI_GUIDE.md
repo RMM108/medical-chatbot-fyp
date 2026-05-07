@@ -57,18 +57,26 @@ the design language, update both together. Run
 `npx @google/design.md lint DESIGN.md` to catch broken refs and WCAG
 issues.
 
-### Where the dark-card moment lives
+### Author labels are CSS contracts
 
-DESIGN.md reserves exactly one inverted dark surface per page as the
-"look here" cue. We bind it to messages with `author="Evaluation"`:
+`author=` is more than a display label — two values are wired to
+`custom.css` selectors and changing them silently breaks the visual
+treatment.
+
+| `author=` | CSS hook in `custom.css` | What it renders |
+| --------- | ------------------------ | --------------- |
+| `"Evaluation"` | `[data-author="Evaluation"]` | The dark "look here" card. DESIGN.md reserves one inverted surface per page; use this label only for the evaluation report. |
+| `"Score"` | `[data-author="Score"] .cl-action-list`, `[data-author="Score"] button` | The compact PHQ-9 score scale — pill-shaped, equal-width, monospaced numbers in a single soft-grey track. |
 
 ```python
 await cl.Message(content=report, author="Evaluation").send()
+await cl.Message(content="Pick the score…", author="Score",
+                 actions=score_actions).send()
 ```
 
-`custom.css` then targets `[data-author="Evaluation"]` to render that
-message on `--md-surface-dark`. Don't reuse this author label for
-non-attention-grabbing content.
+If you need a new visual treatment, add a new author label and a
+matching `[data-author="…"]` selector — don't reuse `Evaluation` or
+`Score` for unrelated content.
 
 ### Adding a new color or typography token
 
@@ -132,22 +140,53 @@ await cl.Message(content="…", actions=actions, author="System").send()
 ```
 
 Each `name` must have a matching `@cl.action_callback("name")` handler.
-After handling, call `await action.remove()` to hide the button.
+After handling, call `await action.remove()` to hide the button — *or*
+leave the buttons in place if the trainee should be able to re-pick
+(severity selection works this way; see [`app.py:436`](../app.py:436)).
 
-## Modes vs Buttons
+### Re-rendering an action list — the `Message.update()` gotcha
 
-`@cl.on_message` (the catch-all message handler) currently switches on
-two boolean session flags:
+`cl.Message.update()` **appends** to the `actions` array rather than
+replacing it. Calling `update()` to swap one set of buttons for another
+leaves the old buttons stacked on top of the new ones — you'll see the
+problem the first time the user re-picks something upstream.
 
-- `analyze_mode` — student typed an exchange number to analyze
-  ([`app.py:293`](../app.py:293))
-- `history_mode` — student typed a session number to view
-  ([`app.py:415`](../app.py:415))
+The pattern in [`app.py`](../app.py) is to keep a reference to the
+message in `cl.user_session`, remove it before sending the
+replacement, and centralize the cleanup in a small helper:
 
-If you add a similar "type a number to pick" interaction, prefer
-generating buttons (see `analyze_mode` action callback at
-[`app.py:977`](../app.py:977)) — fewer surprises and no need to clear
-mode flags everywhere.
+```python
+# Send and remember the action message
+msg = cl.Message(content="…", author="Score", actions=score_actions)
+await msg.send()
+cl.user_session.set("score_scale_msg", msg)
+
+# Later, before re-rendering
+prev = cl.user_session.get("score_scale_msg")
+if prev is not None:
+    await prev.remove()
+    cl.user_session.set("score_scale_msg", None)
+```
+
+See `_clear_score_scale` ([`app.py:490`](../app.py:490)) for the live
+example. Call the helper from every entry/exit path that could leave a
+stale reference (`end_session`, `new_patient`, on score-pick).
+
+## Click affordances over typed numbers
+
+The catch-all `@cl.on_message` handler is now a single normal branch —
+session-history selection and exchange-analysis selection both became
+button flows. Two session flags (`history_mode`, `analyze_mode`) are
+still defensively cleared on each message ([`app.py:296`](../app.py:296))
+so any stale state from older sessions can't reach the chat path.
+
+If you add a similar "pick one of N" interaction, generate buttons
+rather than asking the trainee to type a number. Canonical examples:
+
+- `view_session` ([`app.py:621`](../app.py:621)) — pick a past session
+- `analyze_exchange` ([`app.py:839`](../app.py:839)) — pick an exchange
+- `pick_score` ([`app.py:474`](../app.py:474)) — pick a PHQ-9 score on
+  the compact scale
 
 ## Plotly Charts
 
@@ -170,8 +209,6 @@ chart in the right panel. Color palette lives in
 | Pain point                                         | Where                                    |
 | -------------------------------------------------- | ---------------------------------------- |
 | Registration via pipe-delimited username string    | [`app.py:27`](../app.py:27)              |
-| Up to 28 buttons for PHQ-9 score selection         | [`app.py:689`](../app.py:689)            |
-| History/analyze require typing numbers             | [`app.py:415`](../app.py:415), [`app.py:293`](../app.py:293) |
 | Long markdown blob for evaluation report           | [`app.py:1372`](../app.py:1372)          |
 | `app.py` is one giant file                         | [`app.py`](../app.py)                    |
 
@@ -190,10 +227,9 @@ These are the highest-leverage targets if you're polishing the UI.
 
 ## Quick Wins to Try
 
-1. Replace the score grid with a single message + slider (Chainlit
-   supports `cl.Slider` via `chat_settings`, or roll a number input).
-2. Add a `public/style.css` with brand colors and tighter spacing.
-3. Set `logo_file_url` in `config.toml` so the header isn't blank.
-4. Add a `login_page_image` for first impressions.
-5. Move long evaluation reports into a side-panel
+1. Add a `login_page_image` in `.chainlit/config.toml` for first
+   impressions.
+2. Move long evaluation reports into a side-panel
    `cl.Plotly`/`cl.Text` element instead of stuffing the chat.
+3. Replace the pipe-delimited registration string with a proper
+   `cl.AskUserMessage` walk-through after first sign-in.

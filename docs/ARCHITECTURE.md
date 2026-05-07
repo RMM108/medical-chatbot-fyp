@@ -174,9 +174,7 @@ dashboard — is `sessions INNER JOIN evaluations`.
 - Registration is bolted onto the login form via a pipe-delimited
   username string ([`app.py:27`](../app.py:27)) — works, but UX is
   rough.
-- PHQ-9 score selection emits up to 28 buttons
-  ([`app.py:689`](../app.py:689)). A slider or numeric input would be
-  cleaner.
-- `app.py` is ~1400 lines; the message handler holds three different
-  modes (analyze / history / normal) by flag. Splitting into smaller
-  callbacks would help maintainability.
+- `app.py` is ~1200 lines; the message handler is now a single normal
+  branch (history/analyze became button callbacks), but the file would
+  still benefit from being split by concern (auth, interview loop,
+  evaluation, history/analyze).

@@ -6,6 +6,12 @@ diagnostic accuracy and empathy, and track their progress over time.
 
 Built with [Chainlit](https://chainlit.io) and the Anthropic Claude API.
 
+> **Status — teaching prototype (final-year project).** Authentication uses
+> unsalted SHA-256, the database is a single SQLite file, and conversation
+> logs are stored verbatim. Fine for classroom use; **not** production-grade.
+> See [ARCHITECTURE > Known Issues](docs/ARCHITECTURE.md#known-issues--improvement-areas)
+> before deploying outside a course.
+
 ---
 
 ## Requirements
@@ -97,8 +103,7 @@ Helper scripts:
 - [`create_demo_data.py`](create_demo_data.py) — seeds `test_student` with 10 sample sessions
 - [`register_Students.py`](register_Students.py) — registers a single named student
 - [`check_student_data.py`](check_student_data.py) — quick DB inspection
-- [`rag_experiment.py`](rag_experiment.py) — offline experiment for tuning RAG thresholds
-- [`run_chatbot.py`](run_chatbot.py) — alternative launcher that imports `src.chatbot`
+- [`rag_experiment.py`](rag_experiment.py) — offline experiment for tuning RAG thresholds (writes `rag_threshold_*.{json,csv}` artifacts)
 
 ---
 
@@ -162,6 +167,19 @@ local UI development.
   data flow, and database schema.
 - [`docs/UI_GUIDE.md`](docs/UI_GUIDE.md) — Chainlit-specific notes for
   contributors working on the UI.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause / fix |
+| ------- | ------------------ |
+| Blank page after `chainlit run` | Running on Python 3.14 — downgrade to 3.10–3.13. |
+| `chainlit: command not found` or `create-secret` not found | Activate the venv first: `source venv/bin/activate`. |
+| "RAG server not connected" banner | Expected when `SERVER_URL` is unreachable. Interviews still work without retrieved context. |
+| "Incorrect username or password" right after registering | The username field needs four `\|`-separated pieces (`username\|email\|name\|institution`). See [chainlit.md](chainlit.md). |
+| Port 8000 already in use | Stop the other service or run `chainlit run app.py -w --port 8001`. |
+| Want to reset everything | `rm student_progress.db` then re-run `python create_demo_data.py`. |
 
 ---
 

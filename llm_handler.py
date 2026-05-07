@@ -2,7 +2,6 @@ import anthropic
 from typing import List, Dict
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS, TEMPERATURE
 
-from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS, TEMPERATURE
 
 class LLMHandler:
     """Handles interaction with Claude API"""
@@ -29,10 +28,10 @@ PATIENT PROFILE:
 INSTRUCTIONS:
 1. Respond naturally as this patient would
 2. Show symptoms consistent with {patient_profile['severity']} depression
-3. Be authentic - don't be overly clinical or rehearsed
+3. Be authentic, don't be overly clinical or rehearsed
 4. Show appropriate emotions based on the topic
 5. Sometimes be hesitant or vague if the topic is difficult
-6. Build rapport gradually - don't share everything immediately
+6. Build rapport gradually, don't share everything immediately
 7. Keep responses conversational, not too long (2-4 sentences usually)
 8. Use natural speech patterns, including filler words occasionally
 

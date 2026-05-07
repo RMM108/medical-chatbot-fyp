@@ -69,6 +69,58 @@ def auth_callback(username: str, password: str):
         )
     return None
 
+
+def get_phq9_briefing() -> str:
+    """Returns PHQ-9 educational briefing shown before each patient interview"""
+    return """## 📋 PHQ-9 Clinical Reference Guide
+
+The **Patient Health Questionnaire-9 (PHQ-9)** is a 9-item self-report tool used to screen for and measure the severity of depression. Each item asks how often the patient has been bothered by a specific symptom **over the last 2 weeks**.
+
+---
+
+### 🔢 The 9 Questions
+
+Each question is scored: **0** = Not at all · **1** = Several days · **2** = More than half the days · **3** = Nearly every day
+
+| # | Symptom Domain | What to Listen For |
+|---|---------------|-------------------|
+| 1 | **Anhedonia** | Loss of interest or pleasure in activities they used to enjoy |
+| 2 | **Depressed Mood** | Feeling down, hopeless, or empty most of the time |
+| 3 | **Sleep Disturbance** | Trouble falling/staying asleep, or sleeping too much |
+| 4 | **Fatigue** | Low energy, feeling tired even without much activity |
+| 5 | **Appetite Changes** | Eating much less or more than usual, weight changes |
+| 6 | **Guilt / Worthlessness** | Feeling like a failure, letting people down, self-blame |
+| 7 | **Concentration** | Difficulty focusing, reading, making decisions |
+| 8 | **Psychomotor Changes** | Moving/speaking slowly, or being noticeably restless/fidgety |
+| 9 | **Suicidal Ideation** | Thoughts of being better off dead, or of self-harm |
+
+---
+
+### 📊 Severity Bands
+
+| Score | Severity | Recommended Action |
+|-------|----------|--------------------|
+| 0 – 4 | **Minimal** | Monitor, may not require treatment |
+| 5 – 9 | **Mild** | Watchful waiting, consider counselling |
+| 10 – 14 | **Moderate** | Consider counselling and/or medication |
+| 15 – 19 | **Moderately Severe** | Active treatment with medication and/or therapy |
+| 20 – 27 | **Severe** | Immediate treatment, consider specialist referral |
+
+---
+
+### 💡 Interview Tips
+
+- **Start open-ended** — let the patient describe their experience before asking targeted questions
+- **Cover all 9 domains** — patients may not volunteer information unless asked
+- **Ask about duration** — symptoms must be present for at least 2 weeks to count
+- **Always assess Question 9** — never skip suicidal ideation, even if the patient seems mild
+- **Show empathy** — acknowledge what the patient shares before moving to the next question
+
+---
+
+*Your goal is to gather enough information to estimate the patient's PHQ-9 score and severity level.*
+"""
+
 @cl.on_chat_start
 async def start():
     """Initialize chat session with authenticated user"""
@@ -138,6 +190,12 @@ Example:
     
     await cl.Message(content=stats_msg, author="Stats").send()
     
+    # Show PHQ-9 briefing before patient is generated
+    await cl.Message(
+        content=get_phq9_briefing(),
+        author="PHQ-9 Guide"
+    ).send()
+
     # Generate new patient
     await cl.Message(
         content="Generating a patient for you to interview...",
@@ -170,12 +228,7 @@ Example:
 **Background:**  
 {patient['backstory']}
 
----
 
-**Depression Severity:** {patient['severity']}  
-**PHQ-9 Score:** {patient['phq9_score']}/27
-
----
 
 ### 📋 Your Task
 
@@ -245,7 +298,7 @@ async def main(message: cl.Message):
             
             if exchange_num < 1 or exchange_num > len(exchanges):
                 await cl.Message(
-                    content=f"❌ Invalid exchange number. Please enter a number between 1 and {len(exchanges)}.",
+                    content=f"Invalid exchange number. Please enter a number between 1 and {len(exchanges)}.",
                     author="System"
                 ).send()
                 return
@@ -352,7 +405,7 @@ Be specific, constructive, and educational. Focus on empathy, open-ended questio
             cl.user_session.set("analyze_mode", False)
         except Exception as e:
             await cl.Message(
-                content=f"❌ Error analyzing exchange: {str(e)}",
+                content=f"Error analyzing exchange: {str(e)}",
                 author="System"
             ).send()
             cl.user_session.set("analyze_mode", False)
@@ -366,7 +419,7 @@ Be specific, constructive, and educational. Focus on empathy, open-ended questio
             
             if display_number not in session_mapping:
                 await cl.Message(
-                    content=f"❌ Invalid session number. Please enter a number between 1 and {len(session_mapping)}.",
+                    content=f"Invalid session number. Please enter a number between 1 and {len(session_mapping)}.",
                     author="System"
                 ).send()
                 return
@@ -493,7 +546,7 @@ Be specific, constructive, and educational. Focus on empathy, open-ended questio
     
     if not patient or not llm or not evaluator:
         await cl.Message(
-            content="❌ Session error. Please refresh.",
+            content="Session error. Please refresh.",
             author="System"
         ).send()
         return
@@ -1125,6 +1178,12 @@ You have an ongoing interview that hasn't been evaluated yet.
     await cl.Message(
         content="Generating new patient...",
         author="System"
+    ).send()
+
+    # Show PHQ-9 briefing before new patient
+    await cl.Message(
+        content=get_phq9_briefing(),
+        author="PHQ-9 Guide"
     ).send()
     
     patient = patient_gen.generate_patient()

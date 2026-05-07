@@ -422,6 +422,7 @@ Based on your interview, what is the patient's depression severity?
     
     cl.user_session.set("awaiting_assessment", True)
     cl.user_session.set("assessment_step", "severity")
+    cl.user_session.set("score_scale_msg", None)
     await action.remove()
 
 @cl.action_callback("assess_minimal")
@@ -430,61 +431,72 @@ Based on your interview, what is the patient's depression severity?
 @cl.action_callback("assess_moderately_severe")
 @cl.action_callback("assess_severe")
 async def handle_severity_selection(action: cl.Action):
-    """Confirm severity, ask for the PHQ-9 score, then run evaluation."""
+    """Confirm severity and render the matching score scale.
+
+    The severity buttons are intentionally left in place so the trainee
+    can change their mind. The previous score-scale message is removed
+    and a fresh one is sent — Chainlit's Message.update() appends to
+    the actions array rather than replacing, which manifested as
+    stacked numbers from multiple severity bands.
+    """
 
     severity = action.payload["severity"]
     min_score = action.payload["min_score"]
     max_score = action.payload["max_score"]
 
     cl.user_session.set("selected_severity", severity)
-    cl.user_session.set("severity_range", (min_score, max_score))
-    await action.remove()
 
-    score = await _ask_phq9_score(severity, min_score, max_score)
-    if score is None:
-        cl.user_session.set("awaiting_assessment", False)
-        cl.user_session.set("assessment_step", None)
-        return
+    # Drop any previous score scale before sending the new one.
+    await _clear_score_scale()
+
+    # author="Score" is hooked by custom.css for the compact numeric scale.
+    score_actions = [
+        cl.Action(
+            name="pick_score",
+            value=str(i),
+            payload={"score": i, "severity": severity},
+            label=str(i),
+        )
+        for i in range(min_score, max_score + 1)
+    ]
+    msg = cl.Message(
+        content=(
+            f"✓ Selected: **{severity}** depression\n\n"
+            f"Pick the specific PHQ-9 score ({min_score}–{max_score}):"
+        ),
+        author="Score",
+        actions=score_actions,
+    )
+    await msg.send()
+    cl.user_session.set("score_scale_msg", msg)
+
+
+@cl.action_callback("pick_score")
+async def handle_pick_score(action: cl.Action):
+    """Remove the score scale, post a confirmation, then run evaluation."""
+
+    score = action.payload["score"]
+    severity = action.payload["severity"]
+
+    await _clear_score_scale()
+    await cl.Message(
+        content=f"✓ Recorded **{severity}** · PHQ-9 score **{score}/27**.",
+        author="System",
+    ).send()
 
     await _run_evaluation(severity, score)
 
 
-async def _ask_phq9_score(severity: str, min_score: int, max_score: int):
-    """Prompt the trainee for a PHQ-9 score with retry on bad input."""
-
-    prompt = (
-        f"✓ Selected: **{severity}** depression\n\n"
-        f"Enter the specific PHQ-9 score for this patient ({min_score}–{max_score})."
-    )
-    for attempt in range(3):
-        res = await cl.AskUserMessage(
-            content=prompt if attempt == 0 else (
-                f"❌ Please enter a whole number between {min_score} and {max_score}."
-            ),
-            author="System",
-            timeout=180,
-        ).send()
-
-        if not res:
-            await cl.Message(
-                content="⏱️ Assessment timed out. Click **End Session** when you're ready to retry.",
-                author="System",
-            ).send()
-            return None
-
-        raw = (res.get("output") or res.get("content") or "").strip()
+async def _clear_score_scale():
+    """Remove the previously-sent score scale message, if any."""
+    prev = cl.user_session.get("score_scale_msg")
+    if prev is not None:
         try:
-            score = int(raw)
-        except ValueError:
-            continue
-        if min_score <= score <= max_score:
-            return score
-
-    await cl.Message(
-        content="Too many invalid attempts. Click **End Session** to try again.",
-        author="System",
-    ).send()
-    return None
+            await prev.remove()
+        except Exception:
+            # Chainlit may have already finalized the message; ignore.
+            pass
+        cl.user_session.set("score_scale_msg", None)
 
 
 async def _run_evaluation(severity: str, score: int):
@@ -990,6 +1002,7 @@ You have an ongoing interview that hasn't been evaluated yet.
             await action.remove()
             return
     
+    cl.user_session.set("score_scale_msg", None)
     await cl.Message(
         content="Generating new patient...",
         author="System"

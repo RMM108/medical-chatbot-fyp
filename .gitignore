@@ -30,3 +30,7 @@ conversation_logs/
 
 # Config folder if empty
 config/__pycache__/
+
+# Local design source (the generated public/tokens.css is the committed artifact)
+DESIGN.md
+

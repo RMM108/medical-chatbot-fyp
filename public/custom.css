@@ -1,0 +1,154 @@
+/*
+ * Custom Chainlit overrides — the deltas that shadcn variables can't
+ * express. Loaded after Chainlit's own stylesheet via custom_css in
+ * .chainlit/config.toml.
+ *
+ * Keep this file conservative: only target stable selectors. When a
+ * Chainlit upgrade breaks something here, prefer a one-line fix over a
+ * sweeping rewrite.
+ *
+ * Design system reference: project DESIGN.md (gitignored). Token
+ * mirror: public/tokens.css.
+ */
+
+@import url("/public/tokens.css");
+
+/* ---------- Pill geometry on interactive elements ---------- */
+/*
+ * Shadcn exposes one global --radius (cards, 12px). DESIGN.md wants
+ * pills (9999px) for everything interactive. Override per-component.
+ */
+button,
+.cl-action-button,
+[data-slot="button"],
+[role="button"]:not([role="checkbox"]):not([role="switch"]) {
+  border-radius: var(--md-radius-full) !important;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+.cl-message-composer textarea,
+[data-slot="input"] {
+  border-radius: var(--md-radius-full) !important;
+}
+
+/* Cards keep the 12px shadcn default — no override needed. */
+
+/* ---------- Typography heading face ---------- */
+/*
+ * Headings use the rounded display face; body keeps Inter.
+ * Targets standard markdown rendering inside chat messages.
+ */
+.cl-message-content h1,
+.cl-message-content h2,
+.cl-message-content h3,
+.cl-message-content h4,
+h1.cl-thread-title,
+h2.cl-section-title {
+  font-family: var(--md-font-display);
+  letter-spacing: 0;
+}
+
+/* ---------- Reading column ---------- */
+/*
+ * DESIGN.md specifies a ~720px content column. Chainlit's chat surface
+ * is wider by default; constrain message containers.
+ */
+.cl-message-list,
+.cl-chat-messages {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---------- Hairline treatment for cards ---------- */
+.cl-message-card,
+.cl-action-list {
+  border: 1px solid var(--md-hairline);
+  box-shadow: none !important;
+}
+
+/* ---------- Inverted dark surface — single attention moment ---------- */
+/*
+ * DESIGN.md reserves one inverted dark surface per page as the "look
+ * here" cue. We use the [data-author="Evaluation"] hook (set by
+ * cl.Message author field in app.py) so the evaluation report becomes
+ * the only dark block on an otherwise paper-white canvas.
+ */
+[data-author="Evaluation"],
+[data-author="Evaluation"] .cl-message-card,
+[data-author="Evaluation"] .cl-message-content {
+  background-color: var(--md-surface-dark) !important;
+  color: var(--md-on-dark) !important;
+  border-radius: var(--md-radius-lg);
+}
+[data-author="Evaluation"] .cl-message-content h1,
+[data-author="Evaluation"] .cl-message-content h2,
+[data-author="Evaluation"] .cl-message-content h3,
+[data-author="Evaluation"] .cl-message-content strong {
+  color: var(--md-on-dark) !important;
+}
+[data-author="Evaluation"] .cl-message-content p,
+[data-author="Evaluation"] .cl-message-content li {
+  color: var(--md-on-dark-mute) !important;
+}
+
+/* ---------- Code/install-snippet feel ---------- */
+.cl-message-content code,
+.cl-message-content pre {
+  background-color: var(--md-surface-soft);
+  font-family: var(--md-font-mono);
+  border-radius: var(--md-radius-sm);
+}
+.cl-message-content pre {
+  padding: var(--md-space-md) var(--md-space-lg);
+  border-radius: var(--md-radius-md);
+}
+
+/* ---------- Compact score scale ---------- */
+/*
+ * Scope: messages where the Python code sets author="Score". The action
+ * buttons inside should render as a tight, equal-width numeric scale,
+ * not stacked pills. Keeps the feel of a slider without pulling in a
+ * custom React element.
+ */
+[data-author="Score"] .cl-action-list,
+[data-author="Score"] [class*="action-list"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--md-space-xxs);
+  padding: var(--md-space-xs);
+  background-color: var(--md-surface-soft);
+  border-radius: var(--md-radius-full);
+  width: fit-content;
+}
+
+[data-author="Score"] button,
+[data-author="Score"] [role="button"] {
+  min-width: 36px;
+  padding: 4px 10px !important;
+  font-family: var(--md-font-mono) !important;
+  font-size: 14px !important;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--md-radius-full) !important;
+}
+
+/* ---------- Section spacing ---------- */
+/*
+ * DESIGN.md uses 88px between major sections. In a chat surface that
+ * translates to "extra air between author groups" — we soften the
+ * existing message gaps without going full 88px (would feel sparse).
+ */
+.cl-message-list > * + * {
+  margin-top: var(--md-space-xl);
+}
+
+/* ---------- Login page polish ---------- */
+.cl-login-form,
+.cl-login-card {
+  border: 1px solid var(--md-hairline) !important;
+  box-shadow: none !important;
+  border-radius: var(--md-radius-lg) !important;
+}

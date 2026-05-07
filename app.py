@@ -288,255 +288,14 @@ async def main(message: cl.Message):
     # Don't process messages if we're in assessment mode (using buttons)
     if cl.user_session.get("awaiting_assessment"):
         return
-    
-    # Check if in analyze mode
-    if cl.user_session.get("analyze_mode"):
-        try:
-            exchange_num = int(message.content.strip())
-            exchanges = cl.user_session.get("current_session_exchanges", [])
-            patient_info = cl.user_session.get("current_session_patient", {})
-            
-            if exchange_num < 1 or exchange_num > len(exchanges):
-                await cl.Message(
-                    content=f"Invalid exchange number. Please enter a number between 1 and {len(exchanges)}.",
-                    author="System"
-                ).send()
-                return
-            
-            # Get the specific exchange
-            exchange = exchanges[exchange_num - 1]
-            
-            await cl.Message(
-                content=f"🔍 Analyzing Exchange {exchange_num}... (this may take 10-15 seconds)",
-                author="System"
-            ).send()
-            
-            # Use LLM to analyze the exchange
-            from llm_handler import LLMHandler
-            analyzer = LLMHandler()
-            
-            analysis_prompt = f"""You are an expert clinical supervisor evaluating a medical student's interview technique.
 
-**Patient Context:**
-- Name: {patient_info.get('name', 'Unknown')}
-- Depression Severity: {patient_info.get('severity', 'Unknown')}
-- PHQ-9 Score: {patient_info.get('phq9_score', 'Unknown')}/27
+    # History and exchange-analysis selection are now button-driven
+    # (see view_session and analyze_exchange action callbacks). The
+    # legacy "type a number" branches were removed in favor of click
+    # affordances; any stray flags from old sessions are cleared here.
+    cl.user_session.set("history_mode", False)
+    cl.user_session.set("analyze_mode", False)
 
-**Exchange to Analyze:**
-
-Doctor's Question: "{exchange['doctor']}"
-
-Patient's Response: "{exchange['patient']}"
-
----
-
-Provide a comprehensive analysis of this exchange. Structure your feedback as follows:
-
-**✅ STRENGTHS (What the doctor did well):**
-[List 2-3 specific positive aspects]
-
-**⚠️ AREAS FOR IMPROVEMENT:**
-[List 2-3 specific areas that could be better]
-
-**💡 ALTERNATIVE APPROACHES:**
-[Suggest 1-2 alternative ways to phrase the question or approach the topic]
-
-**🎯 CLINICAL BEST PRACTICES:**
-[Brief note on relevant clinical interviewing principles]
-
-Be specific, constructive, and educational. Focus on empathy, open-ended questioning, and rapport building."""
-
-            analysis = analyzer.client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1500,
-                temperature=0.3,
-                messages=[{"role": "user", "content": analysis_prompt}]
-            )
-            
-            analysis_text = analysis.content[0].text
-            
-            # Display analysis
-            await cl.Message(
-                content=f"""## 🔍 Analysis: Exchange {exchange_num}
-
-**Doctor:** {exchange['doctor']}
-
-**Patient:** {exchange['patient']}
-
----
-
-{analysis_text}
-""",
-                author="Analysis"
-            ).send()
-            
-            # Exit analyze mode
-            cl.user_session.set("analyze_mode", False)
-            
-            # Offer to analyze another or exit
-            await cl.Message(
-                content="",
-                actions=[
-                    cl.Action(
-                        name="analyze_mode",
-                        value="analyze",
-                        payload={"action": "analyze"},
-                        label="🔍 Analyze Another Exchange"
-                    ),
-                    cl.Action(
-                        name="session_history",
-                        value="history",
-                        payload={"action": "session_history"},
-                        label="📚 Session History"
-                    ),
-                    cl.Action(
-                        name="new_patient",
-                        value="new",
-                        payload={"action": "new_patient"},
-                        label="👤 New Patient"
-                    )
-                ],
-                author="System"
-            ).send()
-            
-            return
-            
-        except ValueError:
-            cl.user_session.set("analyze_mode", False)
-        except Exception as e:
-            await cl.Message(
-                content=f"Error analyzing exchange: {str(e)}",
-                author="System"
-            ).send()
-            cl.user_session.set("analyze_mode", False)
-            return
-    
-    # Check if in history mode (viewing past sessions)
-    if cl.user_session.get("history_mode"):
-        try:
-            display_number = int(message.content.strip())
-            session_mapping = cl.user_session.get("session_mapping", {})
-            
-            if display_number not in session_mapping:
-                await cl.Message(
-                    content=f"Invalid session number. Please enter a number between 1 and {len(session_mapping)}.",
-                    author="System"
-                ).send()
-                return
-            
-            # Get the actual session_id from the mapping
-            session_id = session_mapping[display_number]
-            
-            # Get session details
-            session = db.get_session_details(session_id)
-            
-            if not session:
-                await cl.Message(
-                    content="❌ Session not found.",
-                    author="System"
-                ).send()
-                return
-            
-            # Format session details
-            details = f"""## 📋 Session {session_id} Details
-
-**Patient:** {session['patient_name']}  
-**Severity:** {session['patient_severity']} (PHQ-9: {session['patient_phq9_score']})  
-**Date:** {session['session_date']}  
-**Exchanges:** {session['conversation_length']} turns
-
----
-
-### 💬 Conversation Transcript
-
-"""
-            
-            # Add conversation with exchange numbers
-            for idx, exchange in enumerate(session['conversation'], 1):
-                details += f"""**Exchange {idx}**
-
-🩺 **Doctor:** {exchange['doctor']}
-
-👤 **Patient ({session['patient_name']}):** {exchange['patient']}
-
----
-
-"""
-            
-            # Store exchanges for analysis
-            cl.user_session.set("current_session_exchanges", session['conversation'])
-            cl.user_session.set("current_session_patient", {
-                'name': session['patient_name'],
-                'severity': session['patient_severity'],
-                'phq9_score': session['patient_phq9_score']
-            })
-            
-            # Add evaluation summary
-            if session.get('evaluation'):
-                eval_data = session['evaluation']
-                phq9 = eval_data.get('phq9_evaluation', {})
-                empathy = eval_data.get('empathy_evaluation', {})
-                
-                details += f"""### 📊 Your Performance
-
-**Overall Score:** {eval_data.get('overall_score', 0):.1f}%
-
-**Diagnostic Accuracy:** {phq9.get('diagnostic_accuracy', 0):.1f}%
-- Your Assessment: {phq9.get('doctor_assessment', {}).get('severity', 'N/A')} (Score: {phq9.get('doctor_assessment', {}).get('score', 'N/A')})
-- Actual: {eval_data.get('patient_profile', {}).get('severity', 'N/A')} (Score: {eval_data.get('patient_profile', {}).get('phq9_score', 'N/A')})
-
-**Empathy Score:** {empathy.get('overall_score', 0):.1f}%
-- Understanding: {empathy.get('understanding', {}).get('score', 0):.0f}%
-- Communication: {empathy.get('communication', {}).get('score', 0):.0f}%
-- Intention to Help: {empathy.get('intention', {}).get('score', 0):.0f}%
-"""
-            
-            await cl.Message(
-                content=details,
-                author="Session Details"
-            ).send()
-            
-            # Exit history mode
-            cl.user_session.set("history_mode", False)
-            
-            # Add action buttons including analyze option
-            await cl.Message(
-                content="💡 **Want feedback on a specific exchange?** Type the exchange number to get AI analysis (e.g., type `1` for Exchange 1).",
-                actions=[
-                    cl.Action(
-                        name="analyze_mode",
-                        value="analyze",
-                        payload={"action": "analyze"},
-                        label="🔍 Analyze an Exchange"
-                    ),
-                    cl.Action(
-                        name="session_history",
-                        value="history",
-                        payload={"action": "session_history"},
-                        label="📚 View Another Session"
-                    ),
-                    cl.Action(
-                        name="view_progress",
-                        value="progress",
-                        payload={"action": "view_progress"},
-                        label="📈 View Progress"
-                    ),
-                    cl.Action(
-                        name="new_patient",
-                        value="new",
-                        payload={"action": "new_patient"},
-                        label="👤 New Patient"
-                    )
-                ],
-                author="System"
-            ).send()
-            
-            return
-            
-        except ValueError:
-            # Not a valid number, treat as normal conversation
-            cl.user_session.set("history_mode", False)
-    
     # Normal conversation
     patient = cl.user_session.get("patient")
     llm = cl.user_session.get("llm")
@@ -663,6 +422,7 @@ Based on your interview, what is the patient's depression severity?
     
     cl.user_session.set("awaiting_assessment", True)
     cl.user_session.set("assessment_step", "severity")
+    cl.user_session.set("score_scale_msg", None)
     await action.remove()
 
 @cl.action_callback("assess_minimal")
@@ -671,225 +431,302 @@ Based on your interview, what is the patient's depression severity?
 @cl.action_callback("assess_moderately_severe")
 @cl.action_callback("assess_severe")
 async def handle_severity_selection(action: cl.Action):
-    """Handle severity selection and ask for PHQ-9 score"""
-    
+    """Confirm severity and render the matching score scale.
+
+    The severity buttons are intentionally left in place so the trainee
+    can change their mind. The previous score-scale message is removed
+    and a fresh one is sent — Chainlit's Message.update() appends to
+    the actions array rather than replacing, which manifested as
+    stacked numbers from multiple severity bands.
+    """
+
     severity = action.payload["severity"]
     min_score = action.payload["min_score"]
     max_score = action.payload["max_score"]
-    
-    # Store severity
+
     cl.user_session.set("selected_severity", severity)
-    cl.user_session.set("severity_range", (min_score, max_score))
-    
-    await cl.Message(
-        content=f"""✓ Selected: **{severity}** depression
 
-Now, estimate the specific PHQ-9 score ({min_score}-{max_score}):""",
-        author="System",
-        actions=[
-            cl.Action(
-                name=f"score_{i}",
-                value=str(i),
-                payload={"score": i},
-                label=f"Score: {i}"
-            )
-            for i in range(min_score, max_score + 1)
-        ]
-    ).send()
-    
-    cl.user_session.set("assessment_step", "score")
-    await action.remove()
+    # Drop any previous score scale before sending the new one.
+    await _clear_score_scale()
 
-@cl.action_callback("score_0")
-@cl.action_callback("score_1")
-@cl.action_callback("score_2")
-@cl.action_callback("score_3")
-@cl.action_callback("score_4")
-@cl.action_callback("score_5")
-@cl.action_callback("score_6")
-@cl.action_callback("score_7")
-@cl.action_callback("score_8")
-@cl.action_callback("score_9")
-@cl.action_callback("score_10")
-@cl.action_callback("score_11")
-@cl.action_callback("score_12")
-@cl.action_callback("score_13")
-@cl.action_callback("score_14")
-@cl.action_callback("score_15")
-@cl.action_callback("score_16")
-@cl.action_callback("score_17")
-@cl.action_callback("score_18")
-@cl.action_callback("score_19")
-@cl.action_callback("score_20")
-@cl.action_callback("score_21")
-@cl.action_callback("score_22")
-@cl.action_callback("score_23")
-@cl.action_callback("score_24")
-@cl.action_callback("score_25")
-@cl.action_callback("score_26")
-@cl.action_callback("score_27")
-async def handle_score_selection(action: cl.Action):
-    """Handle PHQ-9 score selection and generate evaluation"""
-    
+    # author="Score" is hooked by custom.css for the compact numeric scale.
+    score_actions = [
+        cl.Action(
+            name="pick_score",
+            value=str(i),
+            payload={"score": i, "severity": severity},
+            label=str(i),
+        )
+        for i in range(min_score, max_score + 1)
+    ]
+    msg = cl.Message(
+        content=(
+            f"✓ Selected: **{severity}** depression\n\n"
+            f"Pick the specific PHQ-9 score ({min_score}–{max_score}):"
+        ),
+        author="Score",
+        actions=score_actions,
+    )
+    await msg.send()
+    cl.user_session.set("score_scale_msg", msg)
+
+
+@cl.action_callback("pick_score")
+async def handle_pick_score(action: cl.Action):
+    """Remove the score scale, post a confirmation, then run evaluation."""
+
     score = action.payload["score"]
-    severity = cl.user_session.get("selected_severity")
-    
+    severity = action.payload["severity"]
+
+    await _clear_score_scale()
+    await cl.Message(
+        content=f"✓ Recorded **{severity}** · PHQ-9 score **{score}/27**.",
+        author="System",
+    ).send()
+
+    await _run_evaluation(severity, score)
+
+
+async def _clear_score_scale():
+    """Remove the previously-sent score scale message, if any."""
+    prev = cl.user_session.get("score_scale_msg")
+    if prev is not None:
+        try:
+            await prev.remove()
+        except Exception:
+            # Chainlit may have already finalized the message; ignore.
+            pass
+        cl.user_session.set("score_scale_msg", None)
+
+
+async def _run_evaluation(severity: str, score: int):
+    """Run diagnostic + empathy evaluation and post the dark-card report."""
+
     patient = cl.user_session.get("patient")
     evaluator = cl.user_session.get("evaluator")
     session_id = cl.user_session.get("session_id")
     student_id = cl.user_session.get("student_id")
-    
-    # Store assessment
-    evaluator.doctor_assessment = {
-        'severity': severity,
-        'score': score
-    }
-    
+
+    evaluator.doctor_assessment = {"severity": severity, "score": score}
+
     await cl.Message(
-        content=f"""✓ Assessment Complete
-
-**Your Diagnosis:**
-- Severity: {severity}
-- PHQ-9 Score: {score}/27
-
-⏳ Generating comprehensive evaluation... (15-20 seconds)""",
-        author="System"
+        content=(
+            f"✓ Assessment recorded — **{severity}** ({score}/27).\n\n"
+            "⏳ Generating evaluation… this takes about 15–20 seconds."
+        ),
+        author="System",
     ).send()
-    
-    await action.remove()
-    
+
     try:
-        # Generate evaluation
         phq9_eval = evaluator.evaluate_phq9_accuracy(
-            patient['severity'],
-            patient['phq9_score']
+            patient["severity"], patient["phq9_score"]
         )
-        
         empathy_eval = evaluator.evaluate_empathy_with_llm()
-        
-        # Calculate overall
-        if 'error' not in phq9_eval and 'error' not in empathy_eval:
+
+        if "error" not in phq9_eval and "error" not in empathy_eval:
             overall_score = (
-                phq9_eval['diagnostic_accuracy'] * 0.5 +
-                empathy_eval['overall_score'] * 0.5
+                phq9_eval["diagnostic_accuracy"] * 0.5
+                + empathy_eval["overall_score"] * 0.5
             )
         else:
             overall_score = 0
-        
-        # Save to database
+
         evaluation = {
-            'overall_score': overall_score,
-            'phq9_evaluation': phq9_eval,
-            'empathy_evaluation': empathy_eval,
-            'patient_profile': patient,
-            'conversation_length': len(evaluator.conversation_log)
+            "overall_score": overall_score,
+            "phq9_evaluation": phq9_eval,
+            "empathy_evaluation": empathy_eval,
+            "patient_profile": patient,
+            "conversation_length": len(evaluator.conversation_log),
         }
-        
         db.save_evaluation(session_id, evaluation)
-        
-        # Format and display
-        report = format_evaluation_report(overall_score, phq9_eval, empathy_eval, patient)
-        
-        await cl.Message(content=report, author="Evaluation").send()
-        
-        # Reset
+
+        # Split the report into three dark-card messages so each section
+        # can be scanned independently — matches the design system's
+        # "one inverted moment per page" rule by reusing author=Evaluation.
+        for section in format_evaluation_report(
+            overall_score, phq9_eval, empathy_eval, patient
+        ):
+            await cl.Message(content=section, author="Evaluation").send()
+
         cl.user_session.set("awaiting_assessment", False)
         cl.user_session.set("assessment_step", None)
-        
-        # Show updated progress
+
         progress_data = db.get_progress_data(student_id)
-        
         await cl.Message(
-            content=f"""## 🎯 Updated Stats
-
-**Total Sessions:** {progress_data['total_sessions']}  
-**New Average Score:** {progress_data['avg_overall_score']:.1f}%
-
-Great work! Ready for another patient?
-""",
+            content=(
+                f"## 🎯 Updated Stats\n\n"
+                f"**Total Sessions:** {progress_data['total_sessions']}  \n"
+                f"**New Average Score:** {progress_data['avg_overall_score']:.1f}%\n\n"
+                "Great work! Ready for another patient?"
+            ),
             actions=[
                 cl.Action(
                     name="view_progress",
                     value="progress",
                     payload={"action": "view_progress"},
-                    label="📈 View Progress Dashboard"
+                    label="📈 View Progress Dashboard",
                 ),
                 cl.Action(
                     name="new_patient",
                     value="new",
                     payload={"action": "new_patient"},
-                    label="👤 New Patient"
-                )
+                    label="👤 New Patient",
+                ),
             ],
-            author="System"
+            author="System",
         ).send()
-        
+
     except Exception as e:
         await cl.Message(
-            content=f"❌ Error generating evaluation: {str(e)}",
-            author="System"
+            content=f"❌ Error generating evaluation: {e}",
+            author="System",
         ).send()
 
 @cl.action_callback("session_history")
 async def session_history(action: cl.Action):
-    """Show student's session history"""
-    
+    """Show the student's evaluated sessions as clickable rows."""
+
     student_id = cl.user_session.get("student_id")
-    
-    await cl.Message(
-        content="📚 Loading your session history...",
-        author="System"
-    ).send()
-    
-    # Get all evaluated sessions
     sessions = db.get_student_sessions(student_id, limit=20)
-    
+
     if not sessions:
         await cl.Message(
-            content="No completed sessions yet. Complete an interview and evaluation to see it here!",
-            author="System"
+            content=(
+                "No completed sessions yet. Complete an interview and "
+                "evaluation to see it here!"
+            ),
+            author="System",
         ).send()
         return
-    
-    # Create a mapping of display number to session_id
-    session_mapping = {}
-    for i, session in enumerate(sessions, 1):
-        session_mapping[i] = session['session_id']
-    
-    # Store mapping in user session
-    cl.user_session.set("session_mapping", session_mapping)
-    
-    # Format session list
-    history_text = f"""## 📚 Your Session History
 
-**Total Evaluated Sessions:** {len(sessions)}
+    summary = (
+        f"## 📚 Your Session History\n\n"
+        f"**Total Evaluated Sessions:** {len(sessions)}\n\n---\n"
+    )
+    for i, s in enumerate(sessions, 1):
+        date = s["session_date"].split()[0] if s["session_date"] else "Unknown"
+        summary += (
+            f"\n**{i}.** {s['patient_name']} ({date})  \n"
+            f"Severity: {s['patient_severity']} · "
+            f"Score: {s['overall_score']:.1f}% · "
+            f"Diagnostic: {s['diagnostic_accuracy']:.1f}% · "
+            f"Empathy: {s['empathy_score']:.1f}%\n"
+        )
+    await cl.Message(content=summary, author="History").send()
 
----
-
-"""
-    
-    for i, session in enumerate(sessions, 1):
-        date = session['session_date'].split()[0] if session['session_date'] else 'Unknown'
-        
-        history_text += f"""**{i}.** {session['patient_name']} ({date})
-- Severity: {session['patient_severity']} | Your Score: {session['overall_score']:.1f}%
-- Diagnostic: {session['diagnostic_accuracy']:.1f}% | Empathy: {session['empathy_score']:.1f}%
-
-"""
-    
+    actions = [
+        cl.Action(
+            name="view_session",
+            value=str(s["session_id"]),
+            payload={"session_id": s["session_id"], "index": i},
+            label=f"{i}. {s['patient_name']} · {s['overall_score']:.0f}%",
+        )
+        for i, s in enumerate(sessions, 1)
+    ]
     await cl.Message(
-        content=history_text,
-        author="History"
+        content="Pick a session to review:",
+        actions=actions,
+        author="System",
     ).send()
-    
-    # Instruct user to send session number
+
+
+@cl.action_callback("view_session")
+async def view_session(action: cl.Action):
+    """Render the conversation transcript + evaluation for one session."""
+
+    session_id = action.payload["session_id"]
+    session = db.get_session_details(session_id)
+
+    if not session:
+        await cl.Message(content="❌ Session not found.", author="System").send()
+        await action.remove()
+        return
+
+    details = (
+        f"## 📋 Session {session_id} Details\n\n"
+        f"**Patient:** {session['patient_name']}  \n"
+        f"**Severity:** {session['patient_severity']} "
+        f"(PHQ-9: {session['patient_phq9_score']})  \n"
+        f"**Date:** {session['session_date']}  \n"
+        f"**Exchanges:** {session['conversation_length']} turns\n\n"
+        f"---\n\n### 💬 Conversation Transcript\n\n"
+    )
+    for idx, exchange in enumerate(session["conversation"], 1):
+        details += (
+            f"**Exchange {idx}**\n\n"
+            f"🩺 **Doctor:** {exchange['doctor']}\n\n"
+            f"👤 **Patient ({session['patient_name']}):** {exchange['patient']}\n\n"
+            f"---\n\n"
+        )
+
+    cl.user_session.set("current_session_exchanges", session["conversation"])
+    cl.user_session.set(
+        "current_session_patient",
+        {
+            "name": session["patient_name"],
+            "severity": session["patient_severity"],
+            "phq9_score": session["patient_phq9_score"],
+        },
+    )
+
+    if session.get("evaluation"):
+        eval_data = session["evaluation"]
+        phq9 = eval_data.get("phq9_evaluation", {})
+        empathy = eval_data.get("empathy_evaluation", {})
+        details += (
+            f"### 📊 Your Performance\n\n"
+            f"**Overall Score:** {eval_data.get('overall_score', 0):.1f}%\n\n"
+            f"**Diagnostic Accuracy:** "
+            f"{phq9.get('diagnostic_accuracy', 0):.1f}%\n"
+            f"- Your Assessment: "
+            f"{phq9.get('doctor_assessment', {}).get('severity', 'N/A')} "
+            f"(Score: {phq9.get('doctor_assessment', {}).get('score', 'N/A')})\n"
+            f"- Actual: "
+            f"{eval_data.get('patient_profile', {}).get('severity', 'N/A')} "
+            f"(Score: {eval_data.get('patient_profile', {}).get('phq9_score', 'N/A')})\n\n"
+            f"**Empathy Score:** {empathy.get('overall_score', 0):.1f}%\n"
+            f"- Understanding: "
+            f"{empathy.get('understanding', {}).get('score', 0):.0f}%\n"
+            f"- Communication: "
+            f"{empathy.get('communication', {}).get('score', 0):.0f}%\n"
+            f"- Intention to Help: "
+            f"{empathy.get('intention', {}).get('score', 0):.0f}%\n"
+        )
+
+    await cl.Message(content=details, author="Session Details").send()
+
     await cl.Message(
-        content="💡 **To view a session:** Type the session number (e.g., `1`, `2`, `3`) to see the full conversation.",
-        author="System"
+        content="Want feedback on a specific exchange?",
+        actions=[
+            cl.Action(
+                name="analyze_mode",
+                value="analyze",
+                payload={"action": "analyze"},
+                label="🔍 Analyze an Exchange",
+            ),
+            cl.Action(
+                name="session_history",
+                value="history",
+                payload={"action": "session_history"},
+                label="📚 View Another Session",
+            ),
+            cl.Action(
+                name="view_progress",
+                value="progress",
+                payload={"action": "view_progress"},
+                label="📈 View Progress",
+            ),
+            cl.Action(
+                name="new_patient",
+                value="new",
+                payload={"action": "new_patient"},
+                label="👤 New Patient",
+            ),
+        ],
+        author="System",
     ).send()
-    
-    # Set a flag that we're in history mode
-    cl.user_session.set("history_mode", True)
+
+    await action.remove()
 
 @cl.action_callback("view_progress")
 async def view_progress(action: cl.Action):
@@ -976,49 +813,39 @@ async def view_progress(action: cl.Action):
 
 @cl.action_callback("analyze_mode")
 async def analyze_mode(action: cl.Action):
-    """Enable exchange analysis mode"""
-    
+    """Render one button per exchange so the trainee can pick directly."""
+
     exchanges = cl.user_session.get("current_session_exchanges", [])
-    
+
     if not exchanges:
         await cl.Message(
             content="❌ No exchanges available to analyze. Please view a session first.",
-            author="System"
+            author="System",
         ).send()
+        await action.remove()
         return
-    
-    # Create buttons for each exchange (limit to 10 for UI)
-    exchange_actions = []
-    for i in range(min(len(exchanges), 10)):
-        exchange_actions.append(
-            cl.Action(
-                name=f"analyze_exchange",
-                value=str(i + 1),
-                payload={"exchange_num": i + 1},
-                label=f"Exchange {i + 1}"
-            )
+
+    exchange_actions = [
+        cl.Action(
+            name="analyze_exchange",
+            value=str(i),
+            payload={"exchange_num": i},
+            label=f"Exchange {i}",
         )
-    
-    message = f"""## 🔍 Exchange Analysis
+        for i in range(1, len(exchanges) + 1)
+    ]
 
-**Available exchanges:** {len(exchanges)} total
-
-Select an exchange to analyze:
-"""
-    
-    if len(exchanges) > 10:
-        message += f"\n💡 *Showing first 10 exchanges. Type a number (1-{len(exchanges)}) for others.*"
-    
     await cl.Message(
-        content=message,
+        content=(
+            f"## 🔍 Exchange Analysis\n\n"
+            f"**Available exchanges:** {len(exchanges)} total\n\n"
+            f"Click any exchange to get an AI critique of the doctor's "
+            f"question and the patient's response."
+        ),
         actions=exchange_actions,
-        author="System"
+        author="System",
     ).send()
-    
-    # Also enable typing for exchanges beyond 10
-    if len(exchanges) > 10:
-        cl.user_session.set("analyze_mode", True)
-    
+
     await action.remove()
 
 @cl.action_callback("analyze_exchange")
@@ -1175,6 +1002,7 @@ You have an ongoing interview that hasn't been evaluated yet.
             await action.remove()
             return
     
+    cl.user_session.set("score_scale_msg", None)
     await cl.Message(
         content="Generating new patient...",
         author="System"
@@ -1327,10 +1155,11 @@ async def handle_assessment_input(message: cl.Message):
         
         db.save_evaluation(session_id, evaluation)
         
-        # Format and display
-        report = format_evaluation_report(overall_score, phq9_eval, empathy_eval, patient)
-        
-        await cl.Message(content=report, author="Evaluation").send()
+        # Format and display — split into dark-card sections.
+        for section in format_evaluation_report(
+            overall_score, phq9_eval, empathy_eval, patient
+        ):
+            await cl.Message(content=section, author="Evaluation").send()
         
         # Reset
         cl.user_session.set("awaiting_assessment", False)
@@ -1370,50 +1199,56 @@ Great work! Ready for another patient?
         ).send()
 
 def format_evaluation_report(overall_score, phq9_eval, empathy_eval, patient):
-    """Format evaluation as markdown"""
-    
-    report = f"""# 📊 Performance Evaluation
+    """Return the evaluation as a list of dark-card sections.
 
-## Overall Score: {overall_score:.1f}/100
+    Each section is rendered as its own ``cl.Message(author="Evaluation")``
+    so the inverted-dark surface from the design system applies per
+    section, and trainees can scan one card at a time.
+    """
 
-"""
-    
     if overall_score >= 85:
-        report += "### ⭐⭐⭐ OUTSTANDING\n\n"
+        tier = "⭐⭐⭐ OUTSTANDING"
     elif overall_score >= 75:
-        report += "### ⭐⭐ VERY GOOD\n\n"
+        tier = "⭐⭐ VERY GOOD"
     elif overall_score >= 65:
-        report += "### ⭐ GOOD\n\n"
+        tier = "⭐ GOOD"
     else:
-        report += "### ○ NEEDS IMPROVEMENT\n\n"
-    
-    report += "---\n\n"
-    
-    # Diagnostic
-    if 'error' not in phq9_eval:
-        report += f"""## Part 1: Diagnostic Accuracy ({phq9_eval['diagnostic_accuracy']:.1f}%)
+        tier = "○ NEEDS IMPROVEMENT"
 
-**Your Assessment:** {phq9_eval['doctor_assessment']['severity']} (Score: {phq9_eval['doctor_assessment']['score']})  
-**Actual:** {phq9_eval['actual']['severity']} (Score: {phq9_eval['actual']['score']})
+    sections: list[str] = []
 
-{phq9_eval['severity_feedback']}
+    sections.append(
+        f"# 📊 Performance Evaluation\n\n"
+        f"## Overall Score: {overall_score:.1f}/100\n\n"
+        f"### {tier}"
+    )
 
----
+    if "error" not in phq9_eval:
+        sections.append(
+            f"## Part 1 · Diagnostic Accuracy "
+            f"({phq9_eval['diagnostic_accuracy']:.1f}%)\n\n"
+            f"**Your Assessment:** {phq9_eval['doctor_assessment']['severity']} "
+            f"(Score: {phq9_eval['doctor_assessment']['score']})  \n"
+            f"**Actual:** {phq9_eval['actual']['severity']} "
+            f"(Score: {phq9_eval['actual']['score']})\n\n"
+            f"{phq9_eval['severity_feedback']}"
+        )
 
-"""
-    
-    # Empathy
-    if 'error' not in empathy_eval:
-        report += f"""## Part 2: Empathy & Communication ({empathy_eval['overall_score']:.1f}%)
+    if "error" not in empathy_eval:
+        body = (
+            f"## Part 2 · Empathy & Communication "
+            f"({empathy_eval['overall_score']:.1f}%)\n\n"
+            f"**Understanding:** "
+            f"{empathy_eval.get('understanding', {}).get('score', 0):.0f}%  \n"
+            f"**Communication:** "
+            f"{empathy_eval.get('communication', {}).get('score', 0):.0f}%  \n"
+            f"**Intention to Help:** "
+            f"{empathy_eval.get('intention', {}).get('score', 0):.0f}%"
+        )
+        if empathy_eval.get("strengths"):
+            body += f"\n\n✨ **Strengths:** {empathy_eval['strengths']}"
+        if empathy_eval.get("improvements"):
+            body += f"\n\n📚 **Improve:** {empathy_eval['improvements']}"
+        sections.append(body)
 
-**Understanding:** {empathy_eval.get('understanding', {}).get('score', 0):.0f}%  
-**Communication:** {empathy_eval.get('communication', {}).get('score', 0):.0f}%  
-**Intention to Help:** {empathy_eval.get('intention', {}).get('score', 0):.0f}%
-
-"""
-        if empathy_eval.get('strengths'):
-            report += f"\n✨ **Strengths:** {empathy_eval['strengths']}\n"
-        if empathy_eval.get('improvements'):
-            report += f"\n📚 **Improve:** {empathy_eval['improvements']}\n"
-    
-    return report
+    return sections

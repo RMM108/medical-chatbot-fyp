@@ -8,6 +8,17 @@ Built with [Chainlit](https://chainlit.io) and the Anthropic Claude API.
 
 ---
 
+## Requirements
+
+- **Python 3.10 – 3.13.** Python 3.14 is *not* supported — the
+  `anyio`/`starlette` stack used by Chainlit 2.11 trips a
+  `NoEventLoopError` when serving static assets, leaving the page
+  blank. Use 3.13 (`brew install python@3.13` on macOS) until that's
+  resolved upstream.
+- An [Anthropic API key](https://console.anthropic.com/).
+- (Optional) A reachable RAG server. The app degrades gracefully when
+  it isn't.
+
 ## Quick Start
 
 ```bash
@@ -16,7 +27,8 @@ git clone https://github.com/RMM108/medical-chatbot.git
 cd medical-chatbot
 
 # 2. Create a virtual environment and install dependencies
-python3 -m venv venv
+#    Use Python 3.10–3.13. Python 3.14 is currently broken (see note below).
+python3.13 -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 

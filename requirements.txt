@@ -1,3 +1,5 @@
+# Requires Python 3.10–3.13. Python 3.14 is currently broken for
+# Chainlit's static-asset path (anyio NoEventLoopError).
 chainlit>=2.9.6,<3
 anthropic>=0.40
 python-dotenv>=1.0

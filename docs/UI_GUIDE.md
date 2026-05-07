@@ -4,7 +4,7 @@ Notes for contributors working on the Medical Training Chatbot UI.
 
 ## Stack
 
-- [Chainlit](https://docs.chainlit.io) 2.9.6 — chat-UI framework. The
+- [Chainlit](https://docs.chainlit.io) 2.11+ — chat-UI framework. The
   React frontend is shipped with the package; we customize via config,
   CSS, and JS hooks rather than forking the frontend.
 - [Plotly](https://plotly.com/python/) — embedded charts on the progress
@@ -18,7 +18,7 @@ Notes for contributors working on the Medical Training Chatbot UI.
 | Theme, title, header     | [`.chainlit/config.toml`](../.chainlit/config.toml) |
 | All chat / button flows  | [`app.py`](../app.py)                              |
 | Progress charts          | [`visualizations.py`](../visualizations.py)        |
-| Static assets (CSS / JS) | `public/` (create if missing — gitignored unless committed) |
+| Static assets (CSS / JS) | `public/` — `tokens.css`, `theme.json`, `custom.css`, `medical-glyph.svg` |
 
 ## Running Locally for UI Work
 
@@ -38,6 +38,48 @@ continue without retrieved context — perfect for local UI development.
 If you want to silence the warning, leave `SERVER_URL` unset; the
 default of `http://localhost:8000` will fail fast.
 
+## Design System
+
+The app follows a paper-white, pill-geometry design system inspired by
+the Ollama documentation site. Three files in `public/` carry it:
+
+| File                          | Role                                                              |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `public/theme.json`           | shadcn/ui CSS variables (HSL) for `light` and `dark` modes        |
+| `public/tokens.css`           | Source-of-truth design tokens (colors, fonts, radii, spacing)     |
+| `public/custom.css`           | Selector overrides shadcn variables can't express (pill radius on buttons, 720px reading column, hairline cards, inverted dark surface for `[data-author="Evaluation"]`) |
+| `public/medical-glyph.svg`    | The single line illustration used as logo + default avatar        |
+
+The canonical design spec is a `DESIGN.md` file kept locally
+(gitignored). It uses the [`@google/design.md`](https://github.com/google-labs-code/design.md)
+format. `public/tokens.css` mirrors the spec by hand — when you change
+the design language, update both together. Run
+`npx @google/design.md lint DESIGN.md` to catch broken refs and WCAG
+issues.
+
+### Where the dark-card moment lives
+
+DESIGN.md reserves exactly one inverted dark surface per page as the
+"look here" cue. We bind it to messages with `author="Evaluation"`:
+
+```python
+await cl.Message(content=report, author="Evaluation").send()
+```
+
+`custom.css` then targets `[data-author="Evaluation"]` to render that
+message on `--md-surface-dark`. Don't reuse this author label for
+non-attention-grabbing content.
+
+### Adding a new color or typography token
+
+1. Add it to `DESIGN.md` (your local copy) — both the YAML front matter
+   and the prose section that describes it.
+2. Add the same variable to `public/tokens.css`.
+3. If it's a global theme color, also map it in `public/theme.json` to
+   the appropriate shadcn variable (`--background`, `--primary`, etc.).
+4. If it's a one-off, reference the `--md-*` variable from `tokens.css`
+   directly inside `custom.css`.
+
 ## Theme & Branding
 
 `.chainlit/config.toml` highlights:
@@ -45,13 +87,13 @@ default of `http://localhost:8000` will fail fast.
 ```toml
 [UI]
 name = "Medical Training Chatbot"
-default_theme = "dark"            # "dark" | "light"
+default_theme = "light"           # "dark" | "light"
 # layout = "wide"
 # default_sidebar_state = "open"
-# custom_css = "/public/style.css"
+custom_css = "/public/custom.css"
 # custom_js = "/public/app.js"
-# logo_file_url = ""
-# default_avatar_file_url = ""
+logo_file_url = "/public/medical-glyph.svg"
+default_avatar_file_url = "/public/medical-glyph.svg"
 # login_page_image = "/public/login-bg.jpg"
 ```
 
